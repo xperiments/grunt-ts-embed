@@ -27,9 +27,16 @@ module.exports = function (grunt) {
                     files: ['./ts/**/*.ts'],
                     tasks: ['ts:build']
                 }
+            },
+            embed: {
+                dev: {
+                    src: ['./tests/**/*.ts'],
+                    out:'./tests/embedOutput.tse'
+                }
             }
         });
     grunt.loadNpmTasks('grunt-ts');
+    grunt.loadTasks('tasks')
     grunt.loadNpmTasks('grunt-contrib-watch');
     grunt.registerTask("default", ["typescript","watch"]);
     grunt.registerTask("typescript", ["ts:build"]);

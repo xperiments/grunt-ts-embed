@@ -7,9 +7,8 @@
 
 ///<reference path="typings/node/node.d.ts"/>
 
-var Embed = {
-	HTMLImageElement:null
-}
+var Embed = {}
+
 module io.xperiments.ts {
 
 	export enum EmbedTypes
@@ -58,22 +57,33 @@ module.exports = function (grunt) {
 
 
 		var done = this.async();
+		if( this.files[0].src.length == 0)
+		{
+			grunt.log.error('grunt-ts-embed: No files to processs');
+			done();
+			return;
+		}
 		var fs = require('fs')
 		var path = require('path')
 		var mime = require('mime');
 
 		var outFile = this.data.out || 'ts-embed.ets';
 
-
 		/* Fetch file data */
 		var fileSrcs:any[] = [];
 		var diskMap:io.xperiments.ts.EmbedDiskMap = {};
 		var diskPos = 0;
 		var count = 0;
-		this.files.forEach(parseSourceFile);
-		fileSrcs.forEach(processDiskMapFile)
+		this.files[0].src.forEach(parseSourceFile);
 
-		console.log( diskMap )
+		fileSrcs.forEach(processDiskMapFile)
+		if( fileSrcs.length == 0)
+		{
+			grunt.log.error('grunt-ts-embed: No files to processs');
+			done();
+			return;
+		}
+
 		/* Generate Header */
 		var jsonDiskMap = JSON.stringify(diskMap);
 		var jsonDiskMapBuffer = new Buffer(jsonDiskMap, "utf-8");
@@ -87,7 +97,7 @@ module.exports = function (grunt) {
 		]);
 
 		/* Create output stream */
-		var outStream = fs.createWriteStream(path.join(__dirname ,outFile), {
+		var outStream = fs.createWriteStream(outFile, {
 			flags: "w",
 			encoding: null,
 			mode: 438
@@ -104,45 +114,57 @@ module.exports = function (grunt) {
 
 		/* Helper Methods */
 
-		function rmerge() {
+		function rmerge():void {
 
 			if (count != todo) {
 
-				var currentFile = fileSrcs[count].path;
-				merge(currentFile, rmerge);
+				merge(fileSrcs[count].path, rmerge);
 				count++;
 				return;
 			}
+			grunt.log.ok('grunt-ts-embed: Completed embeding assets into', outFile);
 			done(true);
 		}
 
 
-		function parseSourceFile(file) {
-			var fileContents = grunt.file.read(file.src);
+		function parseSourceFile(file:string):void {
+			var fileContents = grunt.file.read(file);
 			var lines = fileContents.match(/[^\r\n]+/g);
-			var filePath = path.dirname(file.src[0]);
+			var filePath = path.dirname(file);
 
 			lines.forEach(function (line, i) {
+
 				var hasEmbed = /@embed[\s]?\([\s]?(.*)[\s]?\)/.test(line);
 				if (hasEmbed) {
-					var embedObj;
+					var embedObj = null;
 					var embedOptions = /@embed[\s]?\([\s]?(.*)[\s]?\)/.exec(line)[1].replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2": ').replace((/'/g), "\"");
-					eval( "embedObj="+embedOptions);
-					//var embedObj = JSON.parse(/@embed[\s]?\([\s]?(.*)[\s]?\)/.exec(line)[1].replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2": ').replace((/'/g), "\""));
-					var embedPath = filePath + '/' + embedObj.src;
-
-					if (!grunt.file.exists(embedPath)) {
-						console.log('ERROR Not file at path: ', embedPath);
-						return;
+					// TODO try to fix the eval code
+					try {
+						eval("embedObj=" + embedOptions);
+					}catch( e )
+					{
+						grunt.log.error('ERROR parsing embed object: ', embedOptions );
 					}
-					embedObj.path = embedPath;
-					fileSrcs.push(embedObj);
+					if( embedObj ) {
+						var embedPath = filePath + '/' + embedObj.src;
+
+						if (!grunt.file.exists(embedPath)) {
+							grunt.log.error('ERROR Not file at path: ', embedPath);
+							return;
+						}
+						embedObj.path = embedPath;
+						if (fileSrcs.indexOf(embedObj) == -1) {
+							fileSrcs.push(embedObj);
+						}
+					}
+
+
 				}
 			})
 
 		}
 
-		function processDiskMapFile(file:any) {
+		function processDiskMapFile(file:any):void {
 
 			var fileSize = fs.statSync(file.path).size;
 			diskMap[PJWHash(file.src)] = {

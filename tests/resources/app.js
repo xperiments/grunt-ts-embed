@@ -1,0 +1,1 @@
+console.log('ts-embed: JS file loaded');
