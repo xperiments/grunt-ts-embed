@@ -1,6 +1,6 @@
 {
   "name": "grunt-ts-embed",
-  "version": "0.0.2",
+  "version": "0.0.3-alpha.1",
   "description": "grunt-ts-embed Plugin",
   "scripts": {
     "prepublish": "grunt typescript"
@@ -19,7 +19,7 @@
     "grunt": "^0.4.5",
     "grunt-contrib-watch": "^0.6.1",
     "grunt-ts": "^4.0.1",
-    "typescript": "^1.4.1"
+    "typescript": "^1.5.0-alpha"
   },
   "dependencies": {
     "mime": "^1.3.4"

@@ -1,45 +1,50 @@
+/**
+ * grunt-ts-embed
+ * Created by xperiments on 29/03/15.
+ * Copyright (c) 2015 Pedro Casaubon
+ * Licensed under the MIT license.
+ */
+///<reference path="typings/node/node.d.ts"/>
 var Embed = {};
-var io;
-(function (io) {
-    var xperiments;
-    (function (xperiments) {
-        var ts;
-        (function (ts) {
-            (function (EmbedTypes) {
-                EmbedTypes[EmbedTypes["binary"] = 0] = "binary";
-                EmbedTypes[EmbedTypes["utf8"] = 1] = "utf8";
-                EmbedTypes[EmbedTypes["ascii"] = 2] = "ascii";
-            })(ts.EmbedTypes || (ts.EmbedTypes = {}));
-            var EmbedTypes = ts.EmbedTypes;
-            ts.EmbedMimeMap = {
-                "application/octet-stream": 0 /* binary */,
-                "text/xml": 1 /* utf8 */,
-                "text/html": 1 /* utf8 */,
-                "text/plain": 1 /* utf8 */,
-                "text/css": 1 /* utf8 */,
-                "application/javascript": 1 /* utf8 */,
-                "image/svg+xml": 1 /* utf8 */,
-                "image/png": 0 /* binary */,
-                "image/jpeg": 0 /* binary */,
-                "image/gif": 0 /* binary */,
-                "application/pdf": 0 /* binary */
-            };
-        })(ts = xperiments.ts || (xperiments.ts = {}));
-    })(xperiments = io.xperiments || (io.xperiments = {}));
-})(io || (io = {}));
+var xp;
+(function (xp) {
+    (function (EmbedType) {
+        EmbedType[EmbedType["binary"] = 0] = "binary";
+        EmbedType[EmbedType["utf8"] = 1] = "utf8";
+        EmbedType[EmbedType["ascii"] = 2] = "ascii";
+    })(xp.EmbedType || (xp.EmbedType = {}));
+    var EmbedType = xp.EmbedType;
+})(xp || (xp = {}));
+var xp;
+(function (xp) {
+    xp.EmbedMimeMap = {
+        "application/octet-stream": xp.EmbedType.binary,
+        "text/xml": xp.EmbedType.utf8,
+        "text/html": xp.EmbedType.utf8,
+        "text/plain": xp.EmbedType.utf8,
+        "text/css": xp.EmbedType.utf8,
+        "application/javascript": xp.EmbedType.utf8,
+        "image/svg+xml": xp.EmbedType.utf8,
+        "image/png": xp.EmbedType.binary,
+        "image/jpeg": xp.EmbedType.binary,
+        "image/gif": xp.EmbedType.binary,
+        "application/pdf": xp.EmbedType.binary
+    };
+})(xp || (xp = {}));
 'use strict';
 module.exports = function (grunt) {
     grunt.registerMultiTask("embed", function () {
+        var fs = require('fs');
+        var path = require('path');
+        var mime = require('mime');
         var done = this.async();
         if (this.files[0].src.length == 0) {
             grunt.log.error('grunt-ts-embed: No files to processs');
             done();
             return;
         }
-        var fs = require('fs');
-        var path = require('path');
-        var mime = require('mime');
         var outFile = this.data.out || 'ts-embed.ets';
+        var taskOptions = this.data;
         var fileSrcs = [];
         var diskMap = {};
         var diskPos = 0;
@@ -51,6 +56,7 @@ module.exports = function (grunt) {
             done();
             return;
         }
+        console.log(diskMap);
         var jsonDiskMap = JSON.stringify(diskMap);
         var jsonDiskMapBuffer = new Buffer(jsonDiskMap, "utf-8");
         var headerSize = jsonDiskMapBuffer.length;
@@ -67,10 +73,10 @@ module.exports = function (grunt) {
         });
         outStream.write(mainHeader);
         outStream.write(jsonDiskMapBuffer);
-        var todo = fileSrcs.length;
+        var numFileToProcess = fileSrcs.length;
         rmerge();
         function rmerge() {
-            if (count != todo) {
+            if (count != numFileToProcess) {
                 merge(fileSrcs[count].path, rmerge);
                 count++;
                 return;
@@ -78,6 +84,18 @@ module.exports = function (grunt) {
             grunt.log.ok('grunt-ts-embed: Completed embeding assets into', outFile);
             done(true);
         }
+        function merge(file, onDone) {
+            var inStream = fs.createReadStream(file, {
+                flags: "r",
+                encoding: null,
+                fd: null,
+                mode: 438,
+                bufferSize: 64 * 1024
+            });
+            inStream.on("end", onDone);
+            inStream.pipe(outStream, { end: false });
+        }
+        ;
         function parseSourceFile(file) {
             var fileContents = grunt.file.read(file);
             var lines = fileContents.match(/[^\r\n]+/g);
@@ -85,14 +103,8 @@ module.exports = function (grunt) {
             lines.forEach(function (line, i) {
                 var hasEmbed = /@embed[\s]?\([\s]?(.*)[\s]?\)/.test(line);
                 if (hasEmbed) {
-                    var embedObj = null;
                     var embedOptions = /@embed[\s]?\([\s]?(.*)[\s]?\)/.exec(line)[1].replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2": ').replace((/'/g), "\"");
-                    try {
-                        eval("embedObj=" + embedOptions);
-                    }
-                    catch (e) {
-                        grunt.log.error('ERROR parsing embed object: ', embedOptions);
-                    }
+                    var embedObj = evalEmbedOptions(embedOptions);
                     if (embedObj) {
                         var embedPath = filePath + '/' + embedObj.src;
                         if (!grunt.file.exists(embedPath)) {
@@ -107,14 +119,35 @@ module.exports = function (grunt) {
                 }
             });
         }
+        function evalEmbedOptions(options) {
+            var r = null;
+            var error = true;
+            var lastPath;
+            while (error) {
+                try {
+                    eval('r=' + options);
+                    error = false;
+                }
+                catch (err) {
+                    if (err instanceof ReferenceError) {
+                        var ref = err.message.replace(' is not defined', '');
+                        global[ref] = (taskOptions.decompressor && taskOptions.decompressor[ref]) || {};
+                    }
+                }
+            }
+            return r;
+        }
         function processDiskMapFile(file) {
             var fileSize = fs.statSync(file.path).size;
             diskMap[PJWHash(file.src)] = {
-                format: (file.format || io.xperiments.ts.EmbedMimeMap[mime.lookup(file.path)] || 0 /* binary */),
-                mime: mime.lookup(file.path) || "application/octet-stream",
+                src: file.src,
+                format: (file.format || xp.EmbedMimeMap[mime.lookup(file.path)] || xp.EmbedType.binary),
+                mime: (mime.lookup(file.path) || "application/octet-stream"),
                 start: diskPos,
                 length: fileSize
             };
+            if (file.symbol)
+                diskMap[PJWHash(file.src)].symbol = file.symbol;
             diskPos += fileSize;
         }
         function PJWHash(str) {
@@ -133,17 +166,7 @@ module.exports = function (grunt) {
             return hash;
         }
         ;
-        function merge(file, onDone) {
-            var inStream = fs.createReadStream(file, {
-                flags: "r",
-                encoding: null,
-                fd: null,
-                mode: 438,
-                bufferSize: 64 * 1024
-            });
-            inStream.on("end", onDone);
-            inStream.pipe(outStream, { end: false });
-        }
-        ;
     });
 };
+/// <reference path="grunt-ts-embed.ts" />
+/// <reference path="typings/node/node.d.ts" />

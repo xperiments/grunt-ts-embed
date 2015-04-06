@@ -20,24 +20,49 @@ module.exports = function (grunt) {
                         fast: "never"
                     }
 
+                },
+                test:{
+                    src: ["./tests/EmbedTest.ts"],
+                    reference: "./tests/reference.ts",  // If specified, generate this file that you can use for your reference management
+                    out: './tests/EmbedTest.js',
+                    options: {                         // use to override the default options, http://gruntjs.com/configuring-tasks#options
+                        target: 'es5',                 // 'es3' (default) | 'es5'
+                        module: 'commonjs',            // 'amd' (default) | 'commonjs'
+                        sourceMap: false,               // true (default) | false
+                        declaration: false,            // true | false (default)
+                        removeComments: true,           // true (default) | false
+                        fast: "never",
+                        compiler:'./node_modules/typescript/bin/tsc'
+                    }
                 }
             },
             watch: {
                 ts: {
-                    files: ['./ts/**/*.ts'],
+                    files: ['./src/**/*.ts'],
                     tasks: ['ts:build']
                 }
             },
             embed: {
-                dev: {
+                tests: {
                     src: ['./tests/**/*.ts'],
-                    out:'./tests/embedOutput.tse'
+                    out:'./tests/embedOutput.tse',
+                    decompressor:{
+                        VideoElement:function(params){
+
+                            var s = document.createElement('style');
+                            s.type = 'text/css';
+                            s.appendChild(document.createTextNode(EmbedUtils.getFile(params.src).content));
+                            return s;
+                        }
+                    }
                 }
             }
         });
+
     grunt.loadNpmTasks('grunt-ts');
     grunt.loadTasks('tasks')
     grunt.loadNpmTasks('grunt-contrib-watch');
-    grunt.registerTask("default", ["typescript","watch"]);
-    grunt.registerTask("typescript", ["ts:build"]);
+    grunt.registerTask("default", ["ts:build","watch"]);
+    grunt.registerTask("test", ["ts:test","embed"]);
+
 }

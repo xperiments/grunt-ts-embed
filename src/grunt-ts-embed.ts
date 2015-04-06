@@ -9,44 +9,65 @@
 
 var Embed = {}
 
-module io.xperiments.ts {
+module xp {
 
-	export enum EmbedTypes
+
+
+	export interface EmbedDiskMap {
+		[key:string]:EmbedDiskFile
+	}
+	export interface EmbedDiskFile {
+		format:string;
+		mime:string;
+		start:number;
+		length:number;
+		content:string | Uint8Array;
+		symbol?:string;
+	}
+	export interface IEmbedDecompressor { (params:IEmbedParams):any; }
+	export interface IEmbedParams {
+		src:string;
+		as?:IEmbedDecompressor;
+		symbol?:string;
+		format:xp.EmbedType;
+		/*node only*/
+		path?:string;
+	}
+	export interface IEmbedDecoratorParams {
+		params:IEmbedParams;
+		proto:any;
+		propertyName:string;
+		processed:boolean;
+	}
+
+	export enum EmbedType
 	{
 		binary,
 		utf8,
 		ascii
 	}
-	export interface EmbedDiskMap {
-		[key:string]:EmbedDiskFile
-	}
+}
+module xp {
 
-	export interface EmbedDiskFile{
-		format:string;
-		mime:string;
-		start:number;
-		length:number;
-		buffer?:Uint8Array;
-		dataURL?:string;
-		content?:string;
-	}
 
 	export var EmbedMimeMap = {
-		"application/octet-stream":EmbedTypes.binary,
+		"application/octet-stream":EmbedType.binary,
 
-		"text/xml":EmbedTypes.utf8,
-		"text/html":EmbedTypes.utf8,
-		"text/plain":EmbedTypes.utf8,
-		"text/css":EmbedTypes.utf8,
-		"application/javascript":EmbedTypes.utf8,
+		"text/xml":EmbedType.utf8,
+		"text/html":EmbedType.utf8,
+		"text/plain":EmbedType.utf8,
+		"text/css":EmbedType.utf8,
+		"application/javascript":EmbedType.utf8,
 
-		"image/svg+xml":EmbedTypes.utf8,
-		"image/png":EmbedTypes.binary,
-		"image/jpeg":EmbedTypes.binary,
-		"image/gif":EmbedTypes.binary,
-		"application/pdf":EmbedTypes.binary
+		"image/svg+xml":EmbedType.utf8,
+		"image/png":EmbedType.binary,
+		"image/jpeg":EmbedType.binary,
+		"image/gif":EmbedType.binary,
+		"application/pdf":EmbedType.binary
 	}
 }
+
+
 
 'use strict';
 
@@ -55,6 +76,9 @@ module.exports = function (grunt) {
 
 	grunt.registerMultiTask("embed", function () {
 
+		var fs = require('fs')
+		var path = require('path')
+		var mime = require('mime');
 
 		var done = this.async();
 		if( this.files[0].src.length == 0)
@@ -63,26 +87,25 @@ module.exports = function (grunt) {
 			done();
 			return;
 		}
-		var fs = require('fs')
-		var path = require('path')
-		var mime = require('mime');
 
-		var outFile = this.data.out || 'ts-embed.ets';
+		var outFile:String = this.data.out || 'ts-embed.ets';
 
+		var taskOptions:any = this.data;
 		/* Fetch file data */
-		var fileSrcs:any[] = [];
-		var diskMap:io.xperiments.ts.EmbedDiskMap = {};
-		var diskPos = 0;
-		var count = 0;
-		this.files[0].src.forEach(parseSourceFile);
+		var fileSrcs:xp.IEmbedParams[] = [];
+		var diskMap:xp.EmbedDiskMap = {};
+		var diskPos:number = 0;
+		var count:number = 0;
 
-		fileSrcs.forEach(processDiskMapFile)
+		this.files[0].src.forEach(parseSourceFile);
+		fileSrcs.forEach(processDiskMapFile);
 		if( fileSrcs.length == 0)
 		{
 			grunt.log.error('grunt-ts-embed: No files to processs');
 			done();
 			return;
 		}
+		console.log( diskMap );
 
 		/* Generate Header */
 		var jsonDiskMap = JSON.stringify(diskMap);
@@ -108,7 +131,7 @@ module.exports = function (grunt) {
 		outStream.write(jsonDiskMapBuffer);
 
 
-		var todo = fileSrcs.length;
+		var numFileToProcess = fileSrcs.length;
 		rmerge();
 
 
@@ -116,7 +139,7 @@ module.exports = function (grunt) {
 
 		function rmerge():void {
 
-			if (count != todo) {
+			if (count != numFileToProcess) {
 
 				merge(fileSrcs[count].path, rmerge);
 				count++;
@@ -126,6 +149,17 @@ module.exports = function (grunt) {
 			done(true);
 		}
 
+		function merge(file, onDone) {
+			var inStream = fs.createReadStream(file, {
+				flags: "r",
+				encoding: null,
+				fd: null,
+				mode: 438,
+				bufferSize: 64 * 1024
+			});
+			inStream.on("end", onDone);
+			inStream.pipe(outStream, {end: false});
+		};
 
 		function parseSourceFile(file:string):void {
 			var fileContents = grunt.file.read(file);
@@ -136,15 +170,9 @@ module.exports = function (grunt) {
 
 				var hasEmbed = /@embed[\s]?\([\s]?(.*)[\s]?\)/.test(line);
 				if (hasEmbed) {
-					var embedObj = null;
 					var embedOptions = /@embed[\s]?\([\s]?(.*)[\s]?\)/.exec(line)[1].replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2": ').replace((/'/g), "\"");
-					// TODO try to fix the eval code
-					try {
-						eval("embedObj=" + embedOptions);
-					}catch( e )
-					{
-						grunt.log.error('ERROR parsing embed object: ', embedOptions );
-					}
+
+					var embedObj = evalEmbedOptions( embedOptions );
 					if( embedObj ) {
 						var embedPath = filePath + '/' + embedObj.src;
 
@@ -164,15 +192,38 @@ module.exports = function (grunt) {
 
 		}
 
-		function processDiskMapFile(file:any):void {
+		function evalEmbedOptions(options:string):xp.IEmbedParams{
+			var r = null;
+			var error = true;
+			var lastPath;
+			while( error ){
+
+				try{
+					eval('r='+options);
+					error = false;
+				}
+				catch(err){
+					if(  err instanceof ReferenceError){
+						var ref = err.message.replace(' is not defined','');
+						global[ref]=(taskOptions.decompressor && taskOptions.decompressor[ ref ]) || {};
+					}
+				}
+			}
+			return r;
+		}
+
+		function processDiskMapFile(file:xp.IEmbedParams):void {
 
 			var fileSize = fs.statSync(file.path).size;
-			diskMap[PJWHash(file.src)] = {
-				format:( file.format || io.xperiments.ts.EmbedMimeMap[ mime.lookup(file.path) ] || io.xperiments.ts.EmbedTypes.binary),
-				mime:mime.lookup(file.path) || "application/octet-stream",
+
+			diskMap[PJWHash(file.src)] = <xp.EmbedDiskFile>{
+				src:file.src,
+				format:<string>( file.format || xp.EmbedMimeMap[ mime.lookup(file.path) ] || xp.EmbedType.binary),
+				mime:<string>(mime.lookup(file.path) || "application/octet-stream"),
 				start: diskPos,
 				length: fileSize
 			}
+			if( file.symbol) diskMap[PJWHash(file.src)].symbol =  file.symbol;
 			diskPos += fileSize;
 		}
 
@@ -192,17 +243,7 @@ module.exports = function (grunt) {
 			return hash;
 		};
 
-		function merge(file, onDone) {
-			var inStream = fs.createReadStream(file, {
-				flags: "r",
-				encoding: null,
-				fd: null,
-				mode: 438,
-				bufferSize: 64 * 1024
-			});
-			inStream.on("end", onDone);
-			inStream.pipe(outStream, {end: false});
-		};
+
 	});
 
 }
