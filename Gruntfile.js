@@ -45,16 +45,7 @@ module.exports = function (grunt) {
             embed: {
                 tests: {
                     src: ['./tests/**/*.ts'],
-                    out:'./tests/embedOutput.tse',
-                    decompressor:{
-                        VideoElement:function(params){
-
-                            var s = document.createElement('style');
-                            s.type = 'text/css';
-                            s.appendChild(document.createTextNode(EmbedUtils.getFile(params.src).content));
-                            return s;
-                        }
-                    }
+                    out:'./tests/embedOutput.tse'
                 }
             }
         });
@@ -63,6 +54,6 @@ module.exports = function (grunt) {
     grunt.loadTasks('tasks')
     grunt.loadNpmTasks('grunt-contrib-watch');
     grunt.registerTask("default", ["ts:build","watch"]);
-    grunt.registerTask("test", ["ts:test","embed"]);
+    grunt.registerTask("test", ["ts:build","ts:test","embed"]);
 
 }

@@ -22,6 +22,7 @@
     "typescript": "^1.5.0-alpha"
   },
   "dependencies": {
-    "mime": "^1.3.4"
+    "mime": "^1.3.4",
+    "strip-comments": "^0.3.2"
   }
 }

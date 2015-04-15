@@ -11,104 +11,150 @@ var Embed = {}
 
 module xp {
 
+	/**
+	 * Types of internal data storage formats
+	 */
+	export enum EmbedType
+	{
+		binary,
+		utf8
+	}
 
+
+	/**
+	 * Internal storage representation of a file
+	 */
+	export interface EmbedDiskFile {
+		format:EmbedType;
+		mime:string;
+		start:number;
+		length:number;
+		content?:string | Uint8Array;
+		symbol?:string;
+	}
 
 	export interface EmbedDiskMap {
 		[key:string]:EmbedDiskFile
 	}
-	export interface EmbedDiskFile {
-		format:string;
-		mime:string;
-		start:number;
-		length:number;
-		content:string | Uint8Array;
-		symbol?:string;
+
+	export interface IEmbedExtractor { ( meta:IEmbedMeta ):any;
 	}
-	export interface IEmbedDecompressor { (params:IEmbedParams):any; }
-	export interface IEmbedParams {
+	export interface IEmbedMeta {
 		src:string;
-		as?:IEmbedDecompressor;
+		format?:xp.EmbedType;
+		as?:IEmbedExtractor;
 		symbol?:string;
-		format:xp.EmbedType;
-		/*node only*/
-		path?:string;
+		mime:string;
+		path?:string; /*node only*/
 	}
-	export interface IEmbedDecoratorParams {
-		params:IEmbedParams;
+	export interface IEmbedDecorator {
+		params:IEmbedMeta;
 		proto:any;
 		propertyName:string;
-		processed:boolean;
+		done?:boolean;
 	}
 
-	export enum EmbedType
-	{
-		binary,
-		utf8,
-		ascii
-	}
 }
 module xp {
 
 
-	export var EmbedMimeMap = {
-		"application/octet-stream":EmbedType.binary,
+	export var EmbedMimeMap:{[key:string]:EmbedType } = {
+		"audio/L24":EmbedType.binary,
+		"audio/mp4":EmbedType.binary,
+		"audio/mpeg":EmbedType.binary,
+		"audio/ogg":EmbedType.binary,
+		"audio/opus":EmbedType.binary,
+		"audio/vorbis":EmbedType.binary,
+		"audio/vnd.wave":EmbedType.binary,
+		"audio/webm":EmbedType.binary,
 
-		"text/xml":EmbedType.utf8,
-		"text/html":EmbedType.utf8,
-		"text/plain":EmbedType.utf8,
-		"text/css":EmbedType.utf8,
-		"application/javascript":EmbedType.utf8,
-
-		"image/svg+xml":EmbedType.utf8,
-		"image/png":EmbedType.binary,
-		"image/jpeg":EmbedType.binary,
 		"image/gif":EmbedType.binary,
-		"application/pdf":EmbedType.binary
+		"image/jpeg":EmbedType.binary,
+		"image/pjpeg":EmbedType.binary,
+		"image/png":EmbedType.binary,
+		"image/bmp":EmbedType.binary,
+		"image/svg+xml":EmbedType.utf8,
+		"image/tiff":EmbedType.binary,
+
+		"text/css":EmbedType.utf8,
+		"text/csv":EmbedType.utf8,
+		"text/html":EmbedType.utf8,
+		"text/javascript":EmbedType.utf8,
+		"text/plain":EmbedType.utf8,
+		"text/rtf":EmbedType.utf8,
+		"text/vcard":EmbedType.utf8,
+		"text/xml":EmbedType.utf8,
+
+		"video/avi":EmbedType.binary,
+		"video/mpeg":EmbedType.binary,
+		"video/mp4":EmbedType.binary,
+		"video/ogg":EmbedType.binary,
+		"video/quicktime":EmbedType.binary,
+		"video/webm":EmbedType.binary,
+
+		"application/typescript":EmbedType.utf8,
+		"application/ecmascript":EmbedType.utf8,
+		"application/json":EmbedType.utf8,
+		"application/javascript":EmbedType.utf8,
+		"application/octet-stream":EmbedType.binary,
+		"application/pdf":EmbedType.binary,
+		"application/xml":EmbedType.utf8,
+		"application/zip":EmbedType.binary,
+		"application/gzip":EmbedType.binary
+
+
 	}
 }
-
 
 
 'use strict';
 
 
-module.exports = function (grunt) {
+module.exports = function ( grunt ) {
 
 	grunt.registerMultiTask("embed", function () {
 
 		var fs = require('fs')
 		var path = require('path')
 		var mime = require('mime');
+		var strip = require('strip-comments');
 
 		var done = this.async();
-		if( this.files[0].src.length == 0)
-		{
+		if (this.files[0].src.length == 0) {
 			grunt.log.error('grunt-ts-embed: No files to processs');
 			done();
 			return;
 		}
-
-		var outFile:String = this.data.out || 'ts-embed.ets';
 
 		var taskOptions:any = this.data;
-		/* Fetch file data */
-		var fileSrcs:xp.IEmbedParams[] = [];
-		var diskMap:xp.EmbedDiskMap = {};
-		var diskPos:number = 0;
-		var count:number = 0;
 
-		this.files[0].src.forEach(parseSourceFile);
-		fileSrcs.forEach(processDiskMapFile);
-		if( fileSrcs.length == 0)
-		{
+		// determine output file
+		var outFile:String = taskOptions.out || 'ts-embed.ets';
+
+		var embedFiles:xp.IEmbedMeta[] = [];
+		var embedDiskMap:xp.EmbedDiskMap = {};
+		var diskPos:number = 0;
+		var currentFile:number = 0;
+		var gruntFiles = this.files[0].src;
+		var numFileToProcess = 0;
+		// process Typescript source files
+		gruntFiles.forEach(parseSourceFile);
+
+		// generate embedDiskMap data
+		numFileToProcess = embedFiles.length;
+		embedFiles.forEach(processDiskMapFile);
+
+
+		// no files to process?
+		if (numFileToProcess == 0) {
 			grunt.log.error('grunt-ts-embed: No files to processs');
 			done();
 			return;
 		}
-		console.log( diskMap );
 
-		/* Generate Header */
-		var jsonDiskMap = JSON.stringify(diskMap);
+
+		/* Generate 32bit Header with the size of the JSON representation of embedDiskMap */
+		var jsonDiskMap = JSON.stringify(embedDiskMap);
 		var jsonDiskMapBuffer = new Buffer(jsonDiskMap, "utf-8");
 		var headerSize = jsonDiskMapBuffer.length;
 		var mainHeader = new Buffer([
@@ -126,30 +172,30 @@ module.exports = function (grunt) {
 			mode: 438
 		});
 
-		/* Write header map */
+		/* write header */
 		outStream.write(mainHeader);
+		/* write embedDiskMap */
 		outStream.write(jsonDiskMapBuffer);
 
-
-		var numFileToProcess = fileSrcs.length;
-		rmerge();
+		/* recursively concatenate files */
+		concatFiles();
 
 
 		/* Helper Methods */
 
-		function rmerge():void {
+		function concatFiles():void {
 
-			if (count != numFileToProcess) {
+			if (currentFile != numFileToProcess) {
 
-				merge(fileSrcs[count].path, rmerge);
-				count++;
+				merge(embedFiles[currentFile].path, concatFiles);
+				currentFile++;
 				return;
 			}
 			grunt.log.ok('grunt-ts-embed: Completed embeding assets into', outFile);
 			done(true);
 		}
 
-		function merge(file, onDone) {
+		function merge( file:string, onDone:()=>void ):void {
 			var inStream = fs.createReadStream(file, {
 				flags: "r",
 				encoding: null,
@@ -161,19 +207,21 @@ module.exports = function (grunt) {
 			inStream.pipe(outStream, {end: false});
 		};
 
-		function parseSourceFile(file:string):void {
-			var fileContents = grunt.file.read(file);
+		function parseSourceFile( file:string ):void {
+
+			var fileContents = strip(grunt.file.read(file));
 			var lines = fileContents.match(/[^\r\n]+/g);
+
+			if (!lines) return;
 			var filePath = path.dirname(file);
+			lines.forEach(function ( line, i ) {
 
-			lines.forEach(function (line, i) {
-
-				var hasEmbed = /@embed[\s]?\([\s]?(.*)[\s]?\)/.test(line);
+				var hasEmbed = /@embed([A-Z].*)?[\s]?\([\s]?(.*)[\s]?\)/.test(line);
 				if (hasEmbed) {
-					var embedOptions = /@embed[\s]?\([\s]?(.*)[\s]?\)/.exec(line)[1].replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2": ').replace((/'/g), "\"");
+					var embedOptions = /@embed([A-Z].*)?[\s]?\([\s]?(.*)[\s]?\)/.exec(line)[2].replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2": ').replace((/'/g), "\"");
 
-					var embedObj = evalEmbedOptions( embedOptions );
-					if( embedObj ) {
+					var embedObj = evalEmbedOptions(embedOptions);
+					if (embedObj) {
 						var embedPath = filePath + '/' + embedObj.src;
 
 						if (!grunt.file.exists(embedPath)) {
@@ -181,53 +229,53 @@ module.exports = function (grunt) {
 							return;
 						}
 						embedObj.path = embedPath;
-						if (fileSrcs.indexOf(embedObj) == -1) {
-							fileSrcs.push(embedObj);
+						if (embedFiles.indexOf(embedObj) == -1) {
+							embedFiles.push(embedObj);
 						}
 					}
-
-
 				}
-			})
+			});
 
 		}
 
-		function evalEmbedOptions(options:string):xp.IEmbedParams{
+		function evalEmbedOptions( options:string ):xp.IEmbedMeta {
 			var r = null;
 			var error = true;
 			var lastPath;
-			while( error ){
+			while (error) {
 
-				try{
-					eval('r='+options);
+				try {
+					eval('r=' + options);
 					error = false;
 				}
-				catch(err){
-					if(  err instanceof ReferenceError){
-						var ref = err.message.replace(' is not defined','');
-						global[ref]=(taskOptions.decompressor && taskOptions.decompressor[ ref ]) || {};
+				catch (err) {
+					if (err instanceof ReferenceError) {
+						var ref = err.message.replace(' is not defined', '');
+						global[ref] = (taskOptions.decompressor && taskOptions.decompressor[ref]) || {};
 					}
 				}
 			}
 			return r;
 		}
 
-		function processDiskMapFile(file:xp.IEmbedParams):void {
+		function processDiskMapFile( file:xp.IEmbedMeta ):void {
 
 			var fileSize = fs.statSync(file.path).size;
+			var mimeType = file.mime ? file.mime : <string>mime.lookup(file.path) || "application/octet-stream";
+			var format = xp.EmbedMimeMap[ mimeType ] || xp.EmbedType.binary;
 
-			diskMap[PJWHash(file.src)] = <xp.EmbedDiskFile>{
-				src:file.src,
-				format:<string>( file.format || xp.EmbedMimeMap[ mime.lookup(file.path) ] || xp.EmbedType.binary),
-				mime:<string>(mime.lookup(file.path) || "application/octet-stream"),
+			embedDiskMap[PJWHash(file.src)] = <xp.EmbedDiskFile>{
+				src: file.src,
+				format: format,
+				mime: mimeType,
 				start: diskPos,
 				length: fileSize
 			}
-			if( file.symbol) diskMap[PJWHash(file.src)].symbol =  file.symbol;
+			if (file.symbol) embedDiskMap[PJWHash(file.src)].symbol = file.symbol;
 			diskPos += fileSize;
 		}
 
-		function PJWHash(str:string):number {
+		function PJWHash( str:string ):number {
 			var BitsInUnsignedInt = 4 * 8;
 			var ThreeQuarters = (BitsInUnsignedInt * 3) / 4;
 			var OneEighth = BitsInUnsignedInt / 8;

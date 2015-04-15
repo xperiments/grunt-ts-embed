@@ -11,24 +11,50 @@ var xp;
     (function (EmbedType) {
         EmbedType[EmbedType["binary"] = 0] = "binary";
         EmbedType[EmbedType["utf8"] = 1] = "utf8";
-        EmbedType[EmbedType["ascii"] = 2] = "ascii";
     })(xp.EmbedType || (xp.EmbedType = {}));
     var EmbedType = xp.EmbedType;
 })(xp || (xp = {}));
 var xp;
 (function (xp) {
     xp.EmbedMimeMap = {
-        "application/octet-stream": xp.EmbedType.binary,
-        "text/xml": xp.EmbedType.utf8,
-        "text/html": xp.EmbedType.utf8,
-        "text/plain": xp.EmbedType.utf8,
-        "text/css": xp.EmbedType.utf8,
-        "application/javascript": xp.EmbedType.utf8,
-        "image/svg+xml": xp.EmbedType.utf8,
-        "image/png": xp.EmbedType.binary,
-        "image/jpeg": xp.EmbedType.binary,
+        "audio/L24": xp.EmbedType.binary,
+        "audio/mp4": xp.EmbedType.binary,
+        "audio/mpeg": xp.EmbedType.binary,
+        "audio/ogg": xp.EmbedType.binary,
+        "audio/opus": xp.EmbedType.binary,
+        "audio/vorbis": xp.EmbedType.binary,
+        "audio/vnd.wave": xp.EmbedType.binary,
+        "audio/webm": xp.EmbedType.binary,
         "image/gif": xp.EmbedType.binary,
-        "application/pdf": xp.EmbedType.binary
+        "image/jpeg": xp.EmbedType.binary,
+        "image/pjpeg": xp.EmbedType.binary,
+        "image/png": xp.EmbedType.binary,
+        "image/bmp": xp.EmbedType.binary,
+        "image/svg+xml": xp.EmbedType.utf8,
+        "image/tiff": xp.EmbedType.binary,
+        "text/css": xp.EmbedType.utf8,
+        "text/csv": xp.EmbedType.utf8,
+        "text/html": xp.EmbedType.utf8,
+        "text/javascript": xp.EmbedType.utf8,
+        "text/plain": xp.EmbedType.utf8,
+        "text/rtf": xp.EmbedType.utf8,
+        "text/vcard": xp.EmbedType.utf8,
+        "text/xml": xp.EmbedType.utf8,
+        "video/avi": xp.EmbedType.binary,
+        "video/mpeg": xp.EmbedType.binary,
+        "video/mp4": xp.EmbedType.binary,
+        "video/ogg": xp.EmbedType.binary,
+        "video/quicktime": xp.EmbedType.binary,
+        "video/webm": xp.EmbedType.binary,
+        "application/typescript": xp.EmbedType.utf8,
+        "application/ecmascript": xp.EmbedType.utf8,
+        "application/json": xp.EmbedType.utf8,
+        "application/javascript": xp.EmbedType.utf8,
+        "application/octet-stream": xp.EmbedType.binary,
+        "application/pdf": xp.EmbedType.binary,
+        "application/xml": xp.EmbedType.utf8,
+        "application/zip": xp.EmbedType.binary,
+        "application/gzip": xp.EmbedType.binary
     };
 })(xp || (xp = {}));
 'use strict';
@@ -37,27 +63,30 @@ module.exports = function (grunt) {
         var fs = require('fs');
         var path = require('path');
         var mime = require('mime');
+        var strip = require('strip-comments');
         var done = this.async();
         if (this.files[0].src.length == 0) {
             grunt.log.error('grunt-ts-embed: No files to processs');
             done();
             return;
         }
-        var outFile = this.data.out || 'ts-embed.ets';
         var taskOptions = this.data;
-        var fileSrcs = [];
-        var diskMap = {};
+        var outFile = taskOptions.out || 'ts-embed.ets';
+        var embedFiles = [];
+        var embedDiskMap = {};
         var diskPos = 0;
-        var count = 0;
-        this.files[0].src.forEach(parseSourceFile);
-        fileSrcs.forEach(processDiskMapFile);
-        if (fileSrcs.length == 0) {
+        var currentFile = 0;
+        var gruntFiles = this.files[0].src;
+        var numFileToProcess = 0;
+        gruntFiles.forEach(parseSourceFile);
+        numFileToProcess = embedFiles.length;
+        embedFiles.forEach(processDiskMapFile);
+        if (numFileToProcess == 0) {
             grunt.log.error('grunt-ts-embed: No files to processs');
             done();
             return;
         }
-        console.log(diskMap);
-        var jsonDiskMap = JSON.stringify(diskMap);
+        var jsonDiskMap = JSON.stringify(embedDiskMap);
         var jsonDiskMapBuffer = new Buffer(jsonDiskMap, "utf-8");
         var headerSize = jsonDiskMapBuffer.length;
         var mainHeader = new Buffer([
@@ -73,12 +102,11 @@ module.exports = function (grunt) {
         });
         outStream.write(mainHeader);
         outStream.write(jsonDiskMapBuffer);
-        var numFileToProcess = fileSrcs.length;
-        rmerge();
-        function rmerge() {
-            if (count != numFileToProcess) {
-                merge(fileSrcs[count].path, rmerge);
-                count++;
+        concatFiles();
+        function concatFiles() {
+            if (currentFile != numFileToProcess) {
+                merge(embedFiles[currentFile].path, concatFiles);
+                currentFile++;
                 return;
             }
             grunt.log.ok('grunt-ts-embed: Completed embeding assets into', outFile);
@@ -97,13 +125,15 @@ module.exports = function (grunt) {
         }
         ;
         function parseSourceFile(file) {
-            var fileContents = grunt.file.read(file);
+            var fileContents = strip(grunt.file.read(file));
             var lines = fileContents.match(/[^\r\n]+/g);
+            if (!lines)
+                return;
             var filePath = path.dirname(file);
             lines.forEach(function (line, i) {
-                var hasEmbed = /@embed[\s]?\([\s]?(.*)[\s]?\)/.test(line);
+                var hasEmbed = /@embed([A-Z].*)?[\s]?\([\s]?(.*)[\s]?\)/.test(line);
                 if (hasEmbed) {
-                    var embedOptions = /@embed[\s]?\([\s]?(.*)[\s]?\)/.exec(line)[1].replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2": ').replace((/'/g), "\"");
+                    var embedOptions = /@embed([A-Z].*)?[\s]?\([\s]?(.*)[\s]?\)/.exec(line)[2].replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2": ').replace((/'/g), "\"");
                     var embedObj = evalEmbedOptions(embedOptions);
                     if (embedObj) {
                         var embedPath = filePath + '/' + embedObj.src;
@@ -112,8 +142,8 @@ module.exports = function (grunt) {
                             return;
                         }
                         embedObj.path = embedPath;
-                        if (fileSrcs.indexOf(embedObj) == -1) {
-                            fileSrcs.push(embedObj);
+                        if (embedFiles.indexOf(embedObj) == -1) {
+                            embedFiles.push(embedObj);
                         }
                     }
                 }
@@ -139,15 +169,17 @@ module.exports = function (grunt) {
         }
         function processDiskMapFile(file) {
             var fileSize = fs.statSync(file.path).size;
-            diskMap[PJWHash(file.src)] = {
+            var mimeType = file.mime ? file.mime : mime.lookup(file.path) || "application/octet-stream";
+            var format = xp.EmbedMimeMap[mimeType] || xp.EmbedType.binary;
+            embedDiskMap[PJWHash(file.src)] = {
                 src: file.src,
-                format: (file.format || xp.EmbedMimeMap[mime.lookup(file.path)] || xp.EmbedType.binary),
-                mime: (mime.lookup(file.path) || "application/octet-stream"),
+                format: format,
+                mime: mimeType,
                 start: diskPos,
                 length: fileSize
             };
             if (file.symbol)
-                diskMap[PJWHash(file.src)].symbol = file.symbol;
+                embedDiskMap[PJWHash(file.src)].symbol = file.symbol;
             diskPos += fileSize;
         }
         function PJWHash(str) {

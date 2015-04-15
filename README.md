@@ -1,1 +1,1 @@
-grunt-ts-embed Plugin
+ublgrunt-ts-embed Plugin
