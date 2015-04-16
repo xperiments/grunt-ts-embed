@@ -121,7 +121,7 @@ module.exports = function ( grunt ) {
 
 		var done = this.async();
 		if (this.files[0].src.length == 0) {
-			grunt.log.error('grunt-ts-embed: No files to processs');
+			grunt.log.error('grunt-ts-embed: No files to process');
 			done();
 			return;
 		}
@@ -147,7 +147,7 @@ module.exports = function ( grunt ) {
 
 		// no files to process?
 		if (numFileToProcess == 0) {
-			grunt.log.error('grunt-ts-embed: No files to processs');
+			grunt.log.error('grunt-ts-embed: No files to process');
 			done();
 			return;
 		}
@@ -191,7 +191,7 @@ module.exports = function ( grunt ) {
 				currentFile++;
 				return;
 			}
-			grunt.log.ok('grunt-ts-embed: Completed embeding assets into', outFile);
+			grunt.log.ok('grunt-ts-embed: Completed embedding assets into', outFile);
 			done(true);
 		}
 
@@ -225,7 +225,7 @@ module.exports = function ( grunt ) {
 						var embedPath = filePath + '/' + embedObj.src;
 
 						if (!grunt.file.exists(embedPath)) {
-							grunt.log.error('ERROR Not file at path: ', embedPath);
+							grunt.log.error('ERROR No file at path: ', embedPath);
 							return;
 						}
 						embedObj.path = embedPath;
